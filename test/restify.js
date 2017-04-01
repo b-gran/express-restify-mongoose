@@ -49,14 +49,26 @@ function runTests (createFn) {
   describe(createFn.name, () => {
     createTests(createFn, setup, dismantle)
     readTests(createFn, setup, dismantle)
-    updateTests(createFn, setup, dismantle)
-    deleteTests(createFn, setup, dismantle)
-    accessTests(createFn, setup, dismantle)
+    Object.keys(updateTests).forEach((test) => {
+      updateTests[test](createFn, setup, dismantle)
+    })
+    Object.keys(deleteTests).forEach((test) => {
+      deleteTests[test](createFn, setup, dismantle)
+    })
+    Object.keys(accessTests).forEach((test) => {
+      accessTests[test](createFn, setup, dismantle)
+    })
     contextFilterTests(createFn, setup, dismantle)
     hookTests(createFn, setup, dismantle)
-    middlewareTests(createFn, setup, dismantle)
-    optionsTests(createFn, setup, dismantle)
-    virtualsTests(createFn, setup, dismantle)
+    Object.keys(middlewareTests).forEach((test) => {
+      middlewareTests[test](createFn, setup, dismantle)
+    })
+    Object.keys(optionsTests).forEach((test) => {
+      optionsTests[test](createFn, setup, dismantle)
+    })
+    Object.keys(virtualsTests).forEach((test) => {
+      virtualsTests[test](createFn, setup, dismantle)
+    })
   })
 }
 

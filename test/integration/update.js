@@ -2,19 +2,21 @@ const assert = require('assert')
 const mongoose = require('mongoose')
 const request = require('request')
 
-module.exports = function (createFn, setup, dismantle) {
-  const erm = require('../../lib/express-restify-mongoose')
-  const db = require('./setup')()
+const erm = require('../../lib/express-restify-mongoose')
+const db = require('./setup')()
 
-  const testPort = 30023
-  const testUrl = `http://localhost:${testPort}`
-  const invalidId = 'invalid-id'
-  const randomId = mongoose.Types.ObjectId().toHexString()
-  const updateMethods = ['PATCH', 'POST', 'PUT']
+const testPort = 30023
+const testUrl = `http://localhost:${testPort}`
+const invalidId = 'invalid-id'
+const randomId = mongoose.Types.ObjectId().toHexString()
+const updateMethods = ['PATCH', 'POST', 'PUT']
 
-  describe('Update documents', () => {
-    describe('findOneAndUpdate: true', () => {
+module.exports = {
+
+  updateTrue: function (createFn, setup, dismantle) {
+    describe('Update documents, findOneAndUpdate: true', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
       let customers
       let products
@@ -26,14 +28,18 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             findOneAndUpdate: true,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Invoice, {
+          erm.serve(router, db.models.Invoice, {
             findOneAndUpdate: true,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Customer.create([{
@@ -58,6 +64,17 @@ module.exports = function (createFn, setup, dismantle) {
             })
           }).then((createdInvoice) => {
             invoice = createdInvoice
+
+            return db.models.Customer.create({
+              name: 'Jane',
+              purchases: [
+                { item: products[0]._id, number: 1 },
+                { item: products[1]._id, number: 3 }
+              ],
+              returns: [products[0]._id, products[1]._id]
+            })
+          }).then((customer) => {
+            customers.push(customer)
             server = app.listen(testPort, done)
           }, (err) => {
             done(err)
@@ -71,7 +88,8 @@ module.exports = function (createFn, setup, dismantle) {
 
       updateMethods.forEach((method) => {
         it(`${method} /Customer/:id 200 - empty body`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {}
           }, (err, res, body) => {
@@ -83,7 +101,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 200 - created id`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {
               name: 'Mike'
@@ -97,7 +116,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 400 - cast error`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {
               age: 'not a number'
@@ -110,14 +130,16 @@ module.exports = function (createFn, setup, dismantle) {
               message: 'Cast to number failed for value "not a number" at path "age"',
               name: 'CastError',
               path: 'age',
-              value: 'not a number'
+              value: 'not a number',
+              stringValue: `"not a number"`
             })
             done()
           })
         })
 
         it(`${method} /Customer/:id 400 - mongo error`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {
               name: 'John'
@@ -125,19 +147,29 @@ module.exports = function (createFn, setup, dismantle) {
           }, (err, res, body) => {
             assert.ok(!err)
             assert.equal(res.statusCode, 400)
-            assert.equal(Object.keys(body).length, 5)
+            assert.ok(Object.keys(body).length === 5 || Object.keys(body).length === 6)
             assert.equal(body.name, 'MongoError')
             // Remove extra whitespace and allow code 11001 for MongoDB < 3
-            assert.equal(body.errmsg.replace(/\s+/g, ' ').replace('exception: ', ''), 'E11000 duplicate key error index: database.customers.$name_1 dup key: { : "John" }')
-            assert.equal(body.message.replace(/\s+/g, ' ').replace('exception: ', ''), 'E11000 duplicate key error index: database.customers.$name_1 dup key: { : "John" }')
+            assert.ok(
+              body.errmsg.replace(/\s+/g, ' ').replace('exception: ', '').match(
+                /E11000 duplicate key error (?:index|collection): database.customers(\.\$| index: )name_1 dup key: { : "John" }/
+              ) !== null
+            )
+            assert.ok(
+              body.message.replace(/\s+/g, ' ').replace('exception: ', '').match(
+                /E11000 duplicate key error (?:index|collection): database.customers(?:\.\$| index: )name_1 dup key: { : "John" }/
+              ) !== null
+            )
             assert.ok(body.code === 11000 || body.code === 11001)
+            assert.ok(!body.codeName || body.codeName === 'DuplicateKey') // codeName is optional
             assert.equal(body.ok, 0)
             done()
           })
         })
 
         it(`${method} /Customer/:id 400 - missing content type`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`
           }, (err, res, body) => {
             assert.ok(!err)
@@ -151,7 +183,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 400 - invalid content type`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             formData: {}
           }, (err, res, body) => {
@@ -166,7 +199,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 404 - invalid id`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${invalidId}`,
             json: {
               name: 'Mike'
@@ -179,7 +213,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 404 - random id`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${randomId}`,
             json: {
               name: 'Mike'
@@ -192,7 +227,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and product ids as strings`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id.toHexString(),
@@ -208,7 +244,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and products ids as strings`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id.toHexString(),
@@ -224,7 +261,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and product ids`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id,
@@ -240,7 +278,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and products ids`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id,
@@ -261,7 +300,8 @@ module.exports = function (createFn, setup, dismantle) {
               assert.notEqual(invoice.amount, 200)
               invoice.amount = 200
 
-              request({ method,
+              request({
+                method,
                 url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
                 json: invoice
               }, (err, res, body) => {
@@ -281,7 +321,8 @@ module.exports = function (createFn, setup, dismantle) {
               assert.notEqual(invoice.amount, 200)
               invoice.amount = 200
 
-              request({ method,
+              request({
+                method,
                 url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
                 json: invoice
               }, (err, res, body) => {
@@ -298,7 +339,8 @@ module.exports = function (createFn, setup, dismantle) {
 
           it(`${method} /Invoice/:id?populate=customer,products 200 - update with populated customer`, (done) => {
             db.models.Invoice.findById(invoice._id).populate('customer products').exec().then((invoice) => {
-              request({ method,
+              request({
+                method,
                 url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
                 qs: {
                   populate: 'customer,products'
@@ -315,6 +357,29 @@ module.exports = function (createFn, setup, dismantle) {
                 assert.equal(body.products[0].name, invoice.products[0].name)
                 assert.equal(body.products[1]._id, invoice.products[1]._id.toHexString())
                 assert.equal(body.products[1].name, invoice.products[1].name)
+                done()
+              })
+            }, (err) => {
+              done(err)
+            })
+          })
+
+          it(`${method} /Customer/:id 200 - update with reduced count of populated returns`, (done) => {
+            db.models.Customer.findOne({ name: 'Jane' }).populate('purchases returns').exec().then((customer) => {
+              customer.returns = [customer.returns[1]]
+              request({
+                method,
+                url: `${testUrl}/api/v1/Customer/${customer._id}`,
+                qs: {
+                  populate: 'returns,purchases.item'
+                },
+                json: customer
+              }, (err, res, body) => {
+                assert.ok(!err)
+                assert.equal(res.statusCode, 200)
+                assert.ok(body.returns)
+                assert.equal(body.returns.length, 1)
+                assert.equal(body.returns[0]._id, products[1]._id)
                 done()
               })
             }, (err) => {
@@ -354,9 +419,12 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
+  },
 
-    describe('findOneAndUpdate: false', () => {
+  updateFalse: function (createFn, setup, dismantle) {
+    describe('Update documents, findOneAndUpdate: false', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
       let customers
       let products
@@ -368,14 +436,18 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             findOneAndUpdate: false,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Invoice, {
+          erm.serve(router, db.models.Invoice, {
             findOneAndUpdate: false,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Customer.create([{
@@ -400,6 +472,17 @@ module.exports = function (createFn, setup, dismantle) {
             })
           }).then((createdInvoice) => {
             invoice = createdInvoice
+
+            return db.models.Customer.create({
+              name: 'Jane',
+              purchases: [
+                { item: products[0]._id, number: 1 },
+                { item: products[1]._id, number: 3 }
+              ],
+              returns: [products[0]._id, products[1]._id]
+            })
+          }).then((customer) => {
+            customers.push(customer)
             server = app.listen(testPort, done)
           }, (err) => {
             done(err)
@@ -413,7 +496,8 @@ module.exports = function (createFn, setup, dismantle) {
 
       updateMethods.forEach((method) => {
         it(`${method} /Customer/:id 200 - empty body`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {}
           }, (err, res, body) => {
@@ -425,7 +509,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 200 - created id`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {
               name: 'Mike'
@@ -439,7 +524,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 400 - validation error`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {
               age: 'not a number'
@@ -456,7 +542,8 @@ module.exports = function (createFn, setup, dismantle) {
                   message: 'Cast to Number failed for value "not a number" at path "age"',
                   name: 'CastError',
                   path: 'age',
-                  value: 'not a number'
+                  value: 'not a number',
+                  stringValue: `"not a number"`
                 }
               }
             })
@@ -465,7 +552,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 400 - mongo error`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             json: {
               name: 'John'
@@ -473,19 +561,33 @@ module.exports = function (createFn, setup, dismantle) {
           }, (err, res, body) => {
             assert.ok(!err)
             assert.equal(res.statusCode, 400)
-            // Remove extra whitespace, allow 8 keys and code 11001 for MongoDB < 3
-            assert.ok(Object.keys(body).length === 6 || Object.keys(body).length === 8)
+            // Remove extra whitespace, allow 6, 8, or 9 keys and code 11001 for MongoDB < 3
+            assert.ok(
+              Object.keys(body).length === 6 ||
+              Object.keys(body).length === 8 ||
+              Object.keys(body).length === 9
+            )
             assert.equal(body.name, 'MongoError')
             assert.equal(body.driver, true)
-            assert.equal(body.errmsg.replace(/\s+/g, ' '), 'E11000 duplicate key error index: database.customers.$name_1 dup key: { : "John" }')
-            assert.equal(body.message.replace(/\s+/g, ' '), 'E11000 duplicate key error index: database.customers.$name_1 dup key: { : "John" }')
+            assert.ok(
+              body.errmsg.replace(/\s+/g, ' ').replace('exception: ', '').match(
+                /E11000 duplicate key error (?:index|collection): database.customers(?:\.\$| index: )name_1 dup key: { : "John" }/
+              ) !== null
+            )
+            assert.ok(
+              body.message.replace(/\s+/g, ' ').replace('exception: ', '').match(
+                /E11000 duplicate key error (?:index|collection): database.customers(?:\.\$| index: )name_1 dup key: { : "John" }/
+              ) !== null
+            )
             assert.ok(body.code === 11000 || body.code === 11001)
+            assert.ok(!body.writeErrors || body.writeErrors.length === 1)
             done()
           })
         })
 
         it(`${method} /Customer/:id 400 - missing content type`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`
           }, (err, res, body) => {
             assert.ok(!err)
@@ -499,7 +601,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 400 - invalid content type`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customers[0]._id}`,
             formData: {
               name: 'Mike'
@@ -516,7 +619,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 404 - invalid id`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${invalidId}`,
             json: {
               name: 'Mike'
@@ -529,7 +633,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id 404 - random id`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${randomId}`,
             json: {
               name: 'Mike'
@@ -542,7 +647,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and product ids as strings`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id.toHexString(),
@@ -558,7 +664,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and products ids as strings`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id.toHexString(),
@@ -574,7 +681,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and product ids`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id,
@@ -590,7 +698,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Invoice/:id 200 - referencing customer and products ids`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
             json: {
               customer: customers[1]._id,
@@ -611,7 +720,8 @@ module.exports = function (createFn, setup, dismantle) {
               assert.notEqual(invoice.amount, 200)
               invoice.amount = 200
 
-              request({ method,
+              request({
+                method,
                 url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
                 json: invoice
               }, (err, res, body) => {
@@ -631,7 +741,8 @@ module.exports = function (createFn, setup, dismantle) {
               assert.notEqual(invoice.amount, 200)
               invoice.amount = 200
 
-              request({ method,
+              request({
+                method,
                 url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
                 json: invoice
               }, (err, res, body) => {
@@ -648,7 +759,8 @@ module.exports = function (createFn, setup, dismantle) {
 
           it(`${method} /Invoice/:id?populate=customer,products 200 - update with populated customer`, (done) => {
             db.models.Invoice.findById(invoice._id).populate('customer products').exec().then((invoice) => {
-              request({ method,
+              request({
+                method,
                 url: `${testUrl}/api/v1/Invoice/${invoice._id}`,
                 qs: {
                   populate: 'customer,products'
@@ -665,6 +777,29 @@ module.exports = function (createFn, setup, dismantle) {
                 assert.equal(body.products[0].name, invoice.products[0].name)
                 assert.equal(body.products[1]._id, invoice.products[1]._id.toHexString())
                 assert.equal(body.products[1].name, invoice.products[1].name)
+                done()
+              })
+            }, (err) => {
+              done(err)
+            })
+          })
+
+          it(`${method} /Customer/:id 200 - update with reduced count of populated returns`, (done) => {
+            db.models.Customer.findOne({ name: 'Jane' }).populate('purchases returns').exec().then((customer) => {
+              customer.returns = [customer.returns[1]]
+              request({
+                method,
+                url: `${testUrl}/api/v1/Customer/${customer._id}`,
+                qs: {
+                  populate: 'returns,purchases.item'
+                },
+                json: customer
+              }, (err, res, body) => {
+                assert.ok(!err)
+                assert.equal(res.statusCode, 200)
+                assert.ok(body.returns)
+                assert.equal(body.returns.length, 1)
+                assert.equal(body.returns[0]._id, products[1]._id)
                 done()
               })
             }, (err) => {
@@ -704,5 +839,5 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
-  })
+  }
 }

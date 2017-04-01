@@ -11,6 +11,7 @@ module.exports = function (createFn, setup, dismantle) {
 
   describe('contextFilter', () => {
     let app = createFn()
+    let router = app.koaRouter || app
     let server
     let customers
 
@@ -27,9 +28,11 @@ module.exports = function (createFn, setup, dismantle) {
           return done(err)
         }
 
-        erm.serve(app, db.models.Customer, {
+        erm.serve(router, db.models.Customer, {
           contextFilter: contextFilter,
-          restify: app.isRestify
+          restify: app.isRestify,
+          compose: app.compose,
+          koa: app.isKoa
         })
 
         db.models.Customer.create([{

@@ -1,8 +1,14 @@
 const util = require('util')
 const _ = require('lodash')
+const debug = require('debug')('erm:app')
+
 const Filter = require('./resource_filter')
+const RESTPathGenerator = require('./RESTPathGenerator')
+const ERMOperation = require('./ERMOperation')
+
 let customDefaults = null
 let excludedMap = {}
+let reqId = 0
 
 function getDefaults () {
   return _.defaults(_.clone(customDefaults) || {}, {
@@ -24,13 +30,17 @@ const restify = function (app, model, opts = {}) {
   let options = {}
   _.assign(options, getDefaults(), opts)
 
-  const access = require('./middleware/access')
-  const ensureContentType = require('./middleware/ensureContentType')(options)
-  const filterAndFindById = require('./middleware/filterAndFindById')(model, options)
-  const onError = require('./middleware/onError')
-  const outputFn = require('./middleware/outputFn')
-  const prepareQuery = require('./middleware/prepareQuery')(options)
-  const prepareOutput = require('./middleware/prepareOutput')(options, excludedMap)
+  const getContext = require('./api/getContext')
+  const filterRequestBody = require('./api/filterRequestBody')
+
+  const middlewarePath = options.koa ? './koa/' : './middleware/'
+
+  const access = require(middlewarePath + 'access')
+  const ensureContentType = require(middlewarePath + 'ensureContentType')(options)
+  const onError = require(middlewarePath + 'onError')
+  const outputFn = require(middlewarePath + 'outputFn')
+  const prepareQuery = require(middlewarePath + 'prepareQuery')(options)
+  const prepareOutput = require(middlewarePath + 'prepareOutput')(options, excludedMap)
 
   if (!_.isArray(options.private)) {
     throw new Error('"options.private" must be an array of fields')
@@ -64,93 +74,162 @@ const restify = function (app, model, opts = {}) {
 
   excludedMap[model.modelName] = options.filter.filteredKeys
 
-  if (!_.isArray(options.preMiddleware)) {
-    options.preMiddleware = options.preMiddleware ? [options.preMiddleware] : []
+  function ensureValueIsArray (value) {
+    if (!_.isArray(value)) {
+      value = value ? [value] : []
+    }
+    return (typeof options.compose === 'function') ? options.compose(value) : value
   }
 
-  if (!_.isArray(options.preCreate)) {
-    options.preCreate = options.preCreate ? [options.preCreate] : []
-  }
-
-  if (!_.isArray(options.preRead)) {
-    options.preRead = options.preRead ? [options.preRead] : []
-  }
-
-  if (!_.isArray(options.preUpdate)) {
-    options.preUpdate = options.preUpdate ? [options.preUpdate] : []
-  }
-
-  if (!_.isArray(options.preDelete)) {
-    options.preDelete = options.preDelete ? [options.preDelete] : []
-  }
+  options.preMiddleware = ensureValueIsArray(options.preMiddleware)
+  options.preCreate = ensureValueIsArray(options.preCreate)
+  options.preRead = ensureValueIsArray(options.preRead)
+  options.preUpdate = ensureValueIsArray(options.preUpdate)
+  options.preDelete = ensureValueIsArray(options.preDelete)
 
   if (!options.contextFilter) {
     options.contextFilter = (model, req, done) => done(model)
   }
 
-  if (!_.isArray(options.postCreate)) {
-    options.postCreate = options.postCreate ? [options.postCreate] : []
-  }
+  options.postCreate = ensureValueIsArray(options.postCreate)
+  options.postRead = ensureValueIsArray(options.postRead)
+  options.postUpdate = ensureValueIsArray(options.postUpdate)
+  options.postDelete = ensureValueIsArray(options.postDelete)
 
-  if (!_.isArray(options.postRead)) {
-    options.postRead = options.postRead ? [options.postRead] : []
-  }
+  options.name = options.name || model.modelName
 
-  if (!_.isArray(options.postUpdate)) {
-    options.postUpdate = options.postUpdate ? [options.postUpdate] : []
-  }
+  const initialOperationState = ERMOperation.initialize(model, options, excludedMap)
 
-  if (!_.isArray(options.postDelete)) {
-    options.postDelete = options.postDelete ? [options.postDelete] : []
-  }
+  const ops = require('./operations')(initialOperationState)
+  const restPaths = new RESTPathGenerator(options.prefix, options.version, options.name)
 
-  if (!options.onError) {
-    options.onError = onError(!options.restify)
+  if (_.isUndefined(app.delete)) {
+    app.delete = app.del
   }
 
   if (!options.outputFn) {
     options.outputFn = outputFn(!options.restify)
   }
 
-  options.name = options.name || model.modelName
+  let initRoute
 
-  const ops = require('./operations')(model, options, excludedMap)
+  if (options.koa) { // koa2
+    initRoute = function (ctx, next) {
+      // At the start of each request, add our initial operation state to be stored in ctx.erm and
+      // ctx._erm
+      _.merge(ctx.state, initialOperationState.serializeToRequest())
+      ctx.state._ermReqId = ctx.state._ermReqId || (++reqId)
+      debug('%s initRoute', ctx.state._ermReqId)
+      // With koa, resultHandler is the first middleware and handles promise rejections
+      const resultHandler = options.resultHandler ? options.resultHandler : require('./koa/resultHandler')(options)
+      return resultHandler(ctx, next)
+        .then((resp) => {
+          debug('%s initRoute response', ctx.state._ermReqId)
+        })
+    }
+  } else {    // Express and Restify
+    if (!options.onError) {
+      options.onError = onError(!options.restify)
+    }
 
-  let uriItem = `${options.prefix}${options.version}/${options.name}`
-  if (uriItem.indexOf('/:id') === -1) {
-    uriItem += '/:id'
+    initRoute = function (req, res, next) {
+      // At the start of each request, add our initial operation state, to be stored in req.erm and
+      // req._erm
+      _.merge(req, initialOperationState.serializeToRequest())
+      req._ermReqId = req._ermReqId || (++reqId)
+      debug('%s initialize context state', req._ermReqId)
+      next()
+    }
   }
 
-  const uriItems = uriItem.replace('/:id', '')
-  const uriCount = uriItems + '/count'
-  const uriShallow = uriItem + '/shallow'
+  const accessMiddleware = options.access ? access(options) : ensureValueIsArray([])
+  const contextMiddleware = getContext.getMiddleware(initialOperationState)
+  const filterBodyMiddleware = filterRequestBody.getMiddleware(initialOperationState)
 
-  if (_.isUndefined(app.delete)) {
-    app.delete = app.del
+  function deprecatePrepareQuery (text) {
+    return util.deprecate(
+      prepareQuery,
+      `express-restify-mongoose: in a future major version, ${text} ` +
+      `Use PATCH instead.`
+    )
   }
 
-  app.use((req, res, next) => {
-    req.erm = { model }
-    next()
-  })
+  // Retrieval
 
-  const accessMiddleware = options.access ? access(options) : []
+  app.get(
+    restPaths.allDocuments, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
+    options.preRead, accessMiddleware, ops.getItems,
+    prepareOutput
+  )
 
-  app.get(uriItems, prepareQuery, options.preMiddleware, options.preRead, accessMiddleware, ops.getItems, prepareOutput)
-  app.get(uriCount, prepareQuery, options.preMiddleware, options.preRead, accessMiddleware, ops.getCount, prepareOutput)
-  app.get(uriItem, prepareQuery, options.preMiddleware, options.preRead, accessMiddleware, ops.getItem, prepareOutput)
-  app.get(uriShallow, prepareQuery, options.preMiddleware, options.preRead, accessMiddleware, ops.getShallow, prepareOutput)
+  app.get(
+    restPaths.allDocumentsCount, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
+    options.preRead, accessMiddleware, ops.getCount,
+    prepareOutput
+  )
 
-  app.post(uriItems, prepareQuery, ensureContentType, options.preMiddleware, options.preCreate, accessMiddleware, ops.createObject, prepareOutput)
-  app.post(uriItem, util.deprecate(prepareQuery, 'express-restify-mongoose: in a future major version, the POST method to update resources will be removed. Use PATCH instead.'), ensureContentType, options.preMiddleware, options.findOneAndUpdate ? [] : filterAndFindById, options.preUpdate, accessMiddleware, ops.modifyObject, prepareOutput)
+  app.get(
+    restPaths.singleDocument, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
+    options.preRead, accessMiddleware, ops.getItem,
+    prepareOutput
+  )
 
-  app.put(uriItem, util.deprecate(prepareQuery, 'express-restify-mongoose: in a future major version, the PUT method will replace rather than update a resource. Use PATCH instead.'), ensureContentType, options.preMiddleware, options.findOneAndUpdate ? [] : filterAndFindById, options.preUpdate, accessMiddleware, ops.modifyObject, prepareOutput)
-  app.patch(uriItem, prepareQuery, ensureContentType, options.preMiddleware, options.findOneAndUpdate ? [] : filterAndFindById, options.preUpdate, accessMiddleware, ops.modifyObject, prepareOutput)
+  app.get(
+    restPaths.singleDocumentShallow, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
+    options.preRead, accessMiddleware, ops.getShallow,
+    prepareOutput
+  )
 
-  app.delete(uriItems, prepareQuery, options.preMiddleware, options.preDelete, ops.deleteItems, prepareOutput)
-  app.delete(uriItem, prepareQuery, options.preMiddleware, options.findOneAndRemove ? [] : filterAndFindById, options.preDelete, ops.deleteItem, prepareOutput)
+  // Creation
 
-  return uriItems
+  app.post(
+    restPaths.allDocuments, initRoute, prepareQuery, ensureContentType, options.preMiddleware,
+    options.preCreate, accessMiddleware, filterBodyMiddleware, ops.createObject,
+    prepareOutput
+  )
+
+  // Modification
+
+  app.post(
+    restPaths.singleDocument, initRoute,
+    deprecatePrepareQuery('the POST method to update resources will be removed.'),
+    ensureContentType, options.preMiddleware, contextMiddleware,
+    options.preUpdate, accessMiddleware, filterBodyMiddleware, ops.modifyObject,
+    prepareOutput
+  )
+
+  app.put(
+    restPaths.singleDocument, initRoute,
+    deprecatePrepareQuery(`the PUT method will replace rather than update a resource.`),
+    ensureContentType, options.preMiddleware, contextMiddleware,
+    options.preUpdate, accessMiddleware, filterBodyMiddleware, ops.modifyObject,
+    prepareOutput
+  )
+
+  app.patch(
+    restPaths.singleDocument,
+    initRoute, prepareQuery, ensureContentType, options.preMiddleware, contextMiddleware,
+    options.preUpdate, accessMiddleware, filterBodyMiddleware, ops.modifyObject,
+    prepareOutput
+  )
+
+  // Deletion
+
+  app.delete(
+    restPaths.allDocuments,
+    initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
+    options.preDelete, ops.deleteItems,
+    prepareOutput
+  )
+
+  app.delete(
+    restPaths.singleDocument,
+    initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
+    options.preDelete, ops.deleteItem,
+    prepareOutput
+  )
+
+  return restPaths.allDocuments
 }
 
 module.exports = {

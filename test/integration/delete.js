@@ -2,18 +2,19 @@ const assert = require('assert')
 const mongoose = require('mongoose')
 const request = require('request')
 
-module.exports = function (createFn, setup, dismantle) {
-  const erm = require('../../lib/express-restify-mongoose')
-  const db = require('./setup')()
+const erm = require('../../lib/express-restify-mongoose')
+const db = require('./setup')()
 
-  const testPort = 30023
-  const testUrl = `http://localhost:${testPort}`
-  const invalidId = 'invalid-id'
-  const randomId = mongoose.Types.ObjectId().toHexString()
+const testPort = 30023
+const testUrl = `http://localhost:${testPort}`
+const invalidId = 'invalid-id'
+const randomId = mongoose.Types.ObjectId().toHexString()
 
-  describe('Delete documents', () => {
-    describe('findOneAndRemove: true', () => {
+module.exports = {
+  deleteTrue: function (createFn, setup, dismantle) {
+    describe('Delete documents, findOneAndRemove: true', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
       let customer
 
@@ -23,9 +24,11 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             findOneAndRemove: true,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Customer.create([{
@@ -111,9 +114,12 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
+  },
 
-    describe('findOneAndRemove: false', () => {
+  deleteFalse: function (createFn, setup, dismantle) {
+    describe('Delete documents, findOneAndRemove: false', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
       let customer
 
@@ -123,9 +129,11 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             findOneAndRemove: false,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Customer.create([{
@@ -211,5 +219,5 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
-  })
+  }
 }

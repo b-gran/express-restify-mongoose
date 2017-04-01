@@ -13,6 +13,7 @@ module.exports = function (createFn, setup, dismantle) {
 
   describe('Create documents', () => {
     let app = createFn()
+    let router = app.koaRouter || app
     let server
     let customer, product
 
@@ -22,16 +23,22 @@ module.exports = function (createFn, setup, dismantle) {
           return done(err)
         }
 
-        erm.serve(app, db.models.Customer, {
-          restify: app.isRestify
+        erm.serve(router, db.models.Customer, {
+          restify: app.isRestify,
+          compose: app.compose,
+          koa: app.isKoa
         })
 
-        erm.serve(app, db.models.Invoice, {
-          restify: app.isRestify
+        erm.serve(router, db.models.Invoice, {
+          restify: app.isRestify,
+          compose: app.compose,
+          koa: app.isKoa
         })
 
-        erm.serve(app, db.models.Product, {
-          restify: app.isRestify
+        erm.serve(router, db.models.Product, {
+          restify: app.isRestify,
+          compose: app.compose,
+          koa: app.isKoa
         })
 
         db.models.Customer.create({
@@ -337,14 +344,16 @@ module.exports = function (createFn, setup, dismantle) {
               message: 'Cast to ObjectID failed for value "invalid-id" at path "customer"',
               name: 'CastError',
               path: 'customer',
-              value: 'invalid-id'
+              value: 'invalid-id',
+              stringValue: '"invalid-id"'
             },
             products: {
               kind: 'Array',
               message: 'Cast to Array failed for value "[ \'invalid-id\', \'invalid-id\' ]" at path "products"',
               name: 'CastError',
               path: 'products',
-              value: ['invalid-id', 'invalid-id']
+              value: ['invalid-id', 'invalid-id'],
+              stringValue: `"[ 'invalid-id', 'invalid-id' ]"`
             }
           }
         })

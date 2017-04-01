@@ -10,6 +10,7 @@ module.exports = function (createFn, setup, dismantle) {
 
   describe('Mongoose hooks', () => {
     let app = createFn()
+    let router = app.koaRouter || app
     let server
 
     beforeEach((done) => {
@@ -18,8 +19,10 @@ module.exports = function (createFn, setup, dismantle) {
           return done(err)
         }
 
-        erm.serve(app, db.models.Hook, {
-          restify: app.isRestify
+        erm.serve(router, db.models.Hook, {
+          restify: app.isRestify,
+          compose: app.compose,
+          koa: app.isKoa
         })
 
         server = app.listen(testPort, done)

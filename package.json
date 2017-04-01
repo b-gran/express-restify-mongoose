@@ -4,8 +4,10 @@
     "name": "Florian Holzapfel"
   },
   "dependencies": {
-    "async": "~2.0.0",
+    "async": "~2.1.0",
     "bluebird": "~3.4.0",
+    "debug": "^2.6.1",
+    "immutable-record": "^1.0.4",
     "is-coordinates": "~1.0.0",
     "lodash": "~4.16.0",
     "mongoose-detective": "~0.1.0",
@@ -16,7 +18,7 @@
   "peerDependencies": {
     "mongoose": "^4.0.0"
   },
-  "description": "Easily create a flexible REST interface for mongoose models",
+  "description": "Easily create a flexible REST interface for mongoose models and express, koa2, or restify",
   "devDependencies": {
     "babel-cli": "^6.6.0",
     "babel-core": "^6.7.0",
@@ -25,6 +27,12 @@
     "express": "^4.13.0",
     "in-publish": "^2.0.0",
     "istanbul": ">=1.0.0-alpha.2",
+    "koa": "^2.0.0-alpha.7",
+    "koa-router": "jpravetz/koa-router.git#master",
+    "koa-better-router": "^2.1.1",
+    "koa-bodyparser": "^3.2.0",
+    "koa-compose": "^3.2.1",
+    "koa-qs": "^2.0.0",
     "method-override": "^2.3.0",
     "mocha": "^3.0.0",
     "request": "^2.69.0",
@@ -60,14 +68,16 @@
     "compile": "babel src -d lib --source-maps both",
     "prepublish": "in-publish && npm test || not-in-publish",
     "pretest": "npm run lint && npm run compile",
-    "test": "npm run test-unit && npm run test-filter && npm run test-express && npm run test-restify",
-    "test-ci": "npm run test-unit && npm run test-filter && npm run test-cov-express && npm run test-restify",
+    "test": "npm run test-unit && npm run test-filter && npm run test-express && npm run test-koa && npm run test-restify",
+    "test-ci": "npm run test-unit && npm run test-filter && npm run test-cov-express && npm run test-cov-koa && npm run test-restify",
     "test-unit": "mocha --compilers js:babel-core/register -R spec ./test/unit.js",
     "test-filter": "mocha -R spec ./test/integration/resource_filter.js --compilers js:babel-core/register --timeout 10s",
     "test-express": "mocha -R spec ./test/express.js --compilers js:babel-core/register --timeout 10s",
+    "test-koa": "mocha -R spec ./test/koa.js --compilers js:babel-core/register --timeout 10s",
     "test-restify": "mocha -R spec ./test/restify.js --compilers js:babel-core/register --timeout 10s",
     "test-cov-unit": "istanbul cover node_modules/mocha/bin/_mocha -- --compilers js:babel-core/register -R spec ./test/unit.js",
     "test-cov-express": "istanbul cover node_modules/mocha/bin/_mocha -- --compilers js:babel-core/register -R spec ./test/express.js --timeout 10s",
+    "test-cov-koa": "istanbul cover node_modules/mocha/bin/_mocha -- --compilers js:babel-core/register -R spec ./test/koa.js --timeout 10s",
     "test-cov-restify": "istanbul cover node_modules/mocha/bin/_mocha -- --compilers js:babel-core/register -R spec ./test/restify.js --timeout 10s",
     "report-coverage": "cat ./coverage/lcov.info | coveralls"
   },
@@ -90,5 +100,5 @@
       "it"
     ]
   },
-  "version": "4.1.2"
+  "version": "4.1.3"
 }
