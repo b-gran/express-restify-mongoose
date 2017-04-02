@@ -1,5 +1,6 @@
 const util = require('util')
 const _ = require('lodash')
+const debug = require('debug')('erm:app')
 
 const Filter = require('./resource_filter')
 const RESTPathGenerator = require('./RESTPathGenerator')
@@ -7,6 +8,7 @@ const ERMOperation = require('./ERMOperation')
 
 let customDefaults = null
 let excludedMap = {}
+let reqId = 0
 
 function getDefaults () {
   return _.defaults(_.clone(customDefaults) || {}, {
@@ -24,26 +26,21 @@ function getDefaults () {
   })
 }
 
-function ensureValueIsArray (value) {
-  if (_.isArray(value)) {
-    return value
-  }
-
-  return value ? [value] : []
-}
-
 const restify = function (app, model, opts = {}) {
   let options = {}
   _.assign(options, getDefaults(), opts)
 
   const getContext = require('./api/getContext')
   const filterRequestBody = require('./api/filterRequestBody')
-  const access = require('./middleware/access')
-  const ensureContentType = require('./middleware/ensureContentType')(options)
-  const onError = require('./middleware/onError')
-  const outputFn = require('./middleware/outputFn')
-  const prepareQuery = require('./middleware/prepareQuery')(options)
-  const prepareOutput = require('./middleware/prepareOutput')(options, excludedMap)
+
+  const middlewarePath = options.koa ? './koa/' : './middleware/'
+
+  const access = require(middlewarePath + 'access')
+  const ensureContentType = require(middlewarePath + 'ensureContentType')(options)
+  const onError = require(middlewarePath + 'onError')
+  const outputFn = require(middlewarePath + 'outputFn')
+  const prepareQuery = require(middlewarePath + 'prepareQuery')(options)
+  const prepareOutput = require(middlewarePath + 'prepareOutput')(options, excludedMap)
 
   if (!_.isArray(options.private)) {
     throw new Error('"options.private" must be an array of fields')
@@ -77,6 +74,13 @@ const restify = function (app, model, opts = {}) {
 
   excludedMap[model.modelName] = options.filter.filteredKeys
 
+  function ensureValueIsArray (value) {
+    if (!_.isArray(value)) {
+      value = value ? [value] : []
+    }
+    return (typeof options.compose === 'function') ? options.compose(value) : value
+  }
+
   options.preMiddleware = ensureValueIsArray(options.preMiddleware)
   options.preCreate = ensureValueIsArray(options.preCreate)
   options.preRead = ensureValueIsArray(options.preRead)
@@ -92,14 +96,6 @@ const restify = function (app, model, opts = {}) {
   options.postUpdate = ensureValueIsArray(options.postUpdate)
   options.postDelete = ensureValueIsArray(options.postDelete)
 
-  if (!options.onError) {
-    options.onError = onError(!options.restify)
-  }
-
-  if (!options.outputFn) {
-    options.outputFn = outputFn(!options.restify)
-  }
-
   options.name = options.name || model.modelName
 
   const initialOperationState = ERMOperation.initialize(model, options, excludedMap)
@@ -111,14 +107,42 @@ const restify = function (app, model, opts = {}) {
     app.delete = app.del
   }
 
-  app.use((req, res, next) => {
-    // At the start of each request, add our initial operation state
-    _.merge(req, initialOperationState.serializeToRequest())
+  if (!options.outputFn) {
+    options.outputFn = outputFn(!options.restify)
+  }
 
-    next()
-  })
+  let initRoute
 
-  const accessMiddleware = options.access ? access(options) : []
+  if (options.koa) { // koa2
+    initRoute = function (ctx, next) {
+      // At the start of each request, add our initial operation state to be stored in ctx.erm and
+      // ctx._erm
+      _.merge(ctx.state, initialOperationState.serializeToRequest())
+      ctx.state._ermReqId = ctx.state._ermReqId || (++reqId)
+      debug('%s initRoute', ctx.state._ermReqId)
+      // With koa, resultHandler is the first middleware and handles promise rejections
+      const resultHandler = options.resultHandler ? options.resultHandler : require('./koa/resultHandler')(options)
+      return resultHandler(ctx, next)
+        .then((resp) => {
+          debug('%s initRoute response', ctx.state._ermReqId)
+        })
+    }
+  } else {    // Express and Restify
+    if (!options.onError) {
+      options.onError = onError(!options.restify)
+    }
+
+    initRoute = function (req, res, next) {
+      // At the start of each request, add our initial operation state, to be stored in req.erm and
+      // req._erm
+      _.merge(req, initialOperationState.serializeToRequest())
+      req._ermReqId = req._ermReqId || (++reqId)
+      debug('%s initialize context state', req._ermReqId)
+      next()
+    }
+  }
+
+  const accessMiddleware = options.access ? access(options) : ensureValueIsArray([])
   const contextMiddleware = getContext.getMiddleware(initialOperationState)
   const filterBodyMiddleware = filterRequestBody.getMiddleware(initialOperationState)
 
@@ -133,25 +157,25 @@ const restify = function (app, model, opts = {}) {
   // Retrieval
 
   app.get(
-    restPaths.allDocuments, prepareQuery, options.preMiddleware, contextMiddleware,
+    restPaths.allDocuments, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
     options.preRead, accessMiddleware, ops.getItems,
     prepareOutput
   )
 
   app.get(
-    restPaths.allDocumentsCount, prepareQuery, options.preMiddleware, contextMiddleware,
+    restPaths.allDocumentsCount, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
     options.preRead, accessMiddleware, ops.getCount,
     prepareOutput
   )
 
   app.get(
-    restPaths.singleDocument, prepareQuery, options.preMiddleware, contextMiddleware,
+    restPaths.singleDocument, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
     options.preRead, accessMiddleware, ops.getItem,
     prepareOutput
   )
 
   app.get(
-    restPaths.singleDocumentShallow, prepareQuery, options.preMiddleware, contextMiddleware,
+    restPaths.singleDocumentShallow, initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
     options.preRead, accessMiddleware, ops.getShallow,
     prepareOutput
   )
@@ -159,7 +183,7 @@ const restify = function (app, model, opts = {}) {
   // Creation
 
   app.post(
-    restPaths.allDocuments, prepareQuery, ensureContentType, options.preMiddleware,
+    restPaths.allDocuments, initRoute, prepareQuery, ensureContentType, options.preMiddleware,
     options.preCreate, accessMiddleware, filterBodyMiddleware, ops.createObject,
     prepareOutput
   )
@@ -167,7 +191,7 @@ const restify = function (app, model, opts = {}) {
   // Modification
 
   app.post(
-    restPaths.singleDocument,
+    restPaths.singleDocument, initRoute,
     deprecatePrepareQuery('the POST method to update resources will be removed.'),
     ensureContentType, options.preMiddleware, contextMiddleware,
     options.preUpdate, accessMiddleware, filterBodyMiddleware, ops.modifyObject,
@@ -175,7 +199,7 @@ const restify = function (app, model, opts = {}) {
   )
 
   app.put(
-    restPaths.singleDocument,
+    restPaths.singleDocument, initRoute,
     deprecatePrepareQuery(`the PUT method will replace rather than update a resource.`),
     ensureContentType, options.preMiddleware, contextMiddleware,
     options.preUpdate, accessMiddleware, filterBodyMiddleware, ops.modifyObject,
@@ -184,7 +208,7 @@ const restify = function (app, model, opts = {}) {
 
   app.patch(
     restPaths.singleDocument,
-    prepareQuery, ensureContentType, options.preMiddleware, contextMiddleware,
+    initRoute, prepareQuery, ensureContentType, options.preMiddleware, contextMiddleware,
     options.preUpdate, accessMiddleware, filterBodyMiddleware, ops.modifyObject,
     prepareOutput
   )
@@ -193,14 +217,14 @@ const restify = function (app, model, opts = {}) {
 
   app.delete(
     restPaths.allDocuments,
-    prepareQuery, options.preMiddleware, contextMiddleware,
+    initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
     options.preDelete, ops.deleteItems,
     prepareOutput
   )
 
   app.delete(
     restPaths.singleDocument,
-    prepareQuery, options.preMiddleware, contextMiddleware,
+    initRoute, prepareQuery, options.preMiddleware, contextMiddleware,
     options.preDelete, ops.deleteItem,
     prepareOutput
   )

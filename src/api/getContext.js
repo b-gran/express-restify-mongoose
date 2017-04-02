@@ -7,16 +7,16 @@ const cloneMongooseQuery = require('./shared').cloneMongooseQuery
 /**
  *
  * @param {ERMOperation} state
- * @param {Object} req
+ * @param {Context} ctx
  */
-function getContext (state, req) {
+function getContext (state, ctx) {
   const options = state.options
 
   return new Promise(resolve => {
-    options.contextFilter(state.model, req, context => resolve([ context ]))
-  }).then(([ context ]) => {
+    options.contextFilter(state.model, ctx, context => resolve([context]))
+  }).then(([context]) => {
     // This request operates on all documents in the context
-    if (_.isNil(req.params.id)) {
+    if (_.isNil(ctx.params.id)) {
       return state.set('context', context)
     }
 
@@ -25,7 +25,7 @@ function getContext (state, req) {
     // We need to add both the document context AND the document to state.
     const documentQuery = context
       .findOne().and({
-        [options.idProperty]: req.params.id
+        [options.idProperty]: ctx.params.id !== 'count' ? ctx.params.id : undefined
       })
       .lean(false).read(options.readPreference)
 

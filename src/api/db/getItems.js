@@ -1,5 +1,6 @@
 const isDistinctExcluded = require('./../shared').isDistinctExcluded
 const _ = require('lodash')
+const debug = require('debug')('erm:ops')
 
 const APIOperation = require('../../Transformation').APIOperation
 const applyQueryToContext = require('../applyQueryToContext')
@@ -31,11 +32,15 @@ function doGetItems (state) {
       if (stateWithResult.options.totalCountHeader && !stateWithResult.query.distinct) {
         return getTotalCountHeader(state)
           .then(count => {
+            debug('getItems totalCount=%s', count)
             return stateWithResult.set('totalCount', count)
           })
+      } else {
+        debug('getItems')
+        return stateWithResult
       }
-
-      return stateWithResult
+    }, err => {
+      return Promise.reject(err)
     })
 }
 

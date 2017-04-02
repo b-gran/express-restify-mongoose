@@ -1,11 +1,14 @@
 const _ = require('lodash')
 const async = require('async')
 const Promise = require('bluebird')
+const getPostMiddlewareForMethod = require('../api/shared').getPostMiddlewareForMethod
+const debug = require('debug')('erm:middleware')
 
 module.exports = function (options, excludedMap) {
   const errorHandler = require('../errorHandler')(options)
 
   return function (req, res, next) {
+    debug(req._ermReqId + ' prepareOutput')
     const postMiddleware = getPostMiddlewareForMethod(options, req.method, req.erm.statusCode) || []
 
     async.eachSeries(
@@ -19,10 +22,10 @@ module.exports = function (options, excludedMap) {
         // TODO: this will, but should not, filter /count queries
         if (req.erm.result && options.filter) {
           let opts = {
-            access: req.access,
+            access: req._erm.access,
             excludedMap: excludedMap,
-            populate: req._ermQueryOptions
-              ? req._ermQueryOptions.populate
+            populate: req._erm.queryOptions
+              ? req._erm.queryOptions.populate
               : null
           }
 
@@ -54,26 +57,5 @@ module.exports = function (options, excludedMap) {
           .catch(errorHandler(req, res, next))
       }
     )
-  }
-}
-
-function getPostMiddlewareForMethod (options, method, statusCode) {
-  // HACK: we only need the status code because POST is doing double duty
-  // for object creation and modification.
-  switch (method.toLowerCase()) {
-    case 'get':
-      return options.postRead
-
-    case 'post':
-      return (statusCode === 201)
-        ? options.postCreate
-        : options.postUpdate
-
-    case 'put':
-    case 'patch':
-      return options.postUpdate
-
-    case 'delete':
-      return options.postDelete
   }
 }

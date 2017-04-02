@@ -1,16 +1,18 @@
 const assert = require('assert')
 const request = require('request')
 
-module.exports = function (createFn, setup, dismantle) {
-  const erm = require('../../lib/express-restify-mongoose')
-  const db = require('./setup')()
+const erm = require('../../lib/express-restify-mongoose')
+const db = require('./setup')()
 
-  const testPort = 30023
-  const testUrl = `http://localhost:${testPort}`
+const testPort = 30023
+const testUrl = `http://localhost:${testPort}`
 
-  describe('virtuals', () => {
-    describe('lean: true', () => {
+module.exports = {
+
+  leanTrue: function (createFn, setup, dismantle) {
+    describe('virtuals lean: true', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
 
       beforeEach((done) => {
@@ -19,9 +21,11 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             lean: true,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Customer.create({
@@ -51,9 +55,12 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
+  },
 
-    describe('lean: false', () => {
+  leanFalse: function (createFn, setup, dismantle) {
+    describe('virtuals lean: false', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
 
       beforeEach((done) => {
@@ -62,9 +69,11 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             lean: false,
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Customer.create({
@@ -94,9 +103,12 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
+  },
 
+  readPreference: function (createFn, setup, dismantle) {
     describe('readPreference: secondary', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
 
       beforeEach((done) => {
@@ -105,9 +117,11 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             readPreference: 'secondary',
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Customer.create({
@@ -135,5 +149,5 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
-  })
+  }
 }

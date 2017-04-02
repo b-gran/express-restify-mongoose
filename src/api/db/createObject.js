@@ -1,3 +1,4 @@
+const debug = require('debug')('erm:db')
 const APIOperation = require('../../Transformation').APIOperation
 
 /**
@@ -14,6 +15,8 @@ function createObject (state) {
   const model = state.model
   const queryOptions = state.query
 
+  debug(`create ${state.model.modelName}`)
+
   return model.create(state.body)
     .then(newDocument => {
       return model.populate(
@@ -22,6 +25,7 @@ function createObject (state) {
       )
     })
     .then(newDocument => {
+      debug(`created ${state.model.modelName}`)
       return state
         .set('result', newDocument)
         .set('statusCode', 201)

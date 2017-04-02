@@ -85,8 +85,10 @@ function fakeRequest (shouldSucceed, initialState) {
     params: {},
     query: {},
     erm: { model: initialState.model, result: shouldSucceed },
-    _ermOptions: initialState.options,
-    _ermExcludedMap: initialState.excludedMap
+    _erm: {
+      options: initialState.options,
+      excludedMap: initialState.excludedMap
+    }
   }
 }
 

@@ -138,13 +138,15 @@ class ERMOperation extends OperationRecord {
         document: this.document
       },
 
-      access: this.accessLevel,
+      _erm: {
+        access: this.accessLevel,
 
-      _ermQueryOptions: this.query,
-      _ermContext: this.context,
-      _ermBody: this.body,
-      _ermOptions: this.options,
-      _ermExcludedMap: this.excludedMap
+        queryOptions: this.query,
+        context: this.context,
+        body: this.body,
+        options: this.options,
+        excludedMap: this.excludedMap
+      }
     }
   }
 }
@@ -154,27 +156,27 @@ class ERMOperation extends OperationRecord {
  *
  * @alias module:ERMOperation.deserializeRequest
  *
- * @param {Object} req - the Express request
+ * @param {Object} req - the Express request or Koa2 ctx object
  * @return {ERMOperation}
  */
-ERMOperation.deserializeRequest = function (req) {
-  const reqErm = req.erm || {}
-
+ERMOperation.deserializeRequest = function (ctx) {
+  const pubErm = ctx.erm || {}
+  const privErm = ctx.privateErm || {}
   return new ERMOperation(
     _.omitBy({
-      model: reqErm.model,
-      statusCode: reqErm.statusCode,
-      totalCount: reqErm.totalCount,
-      result: reqErm.result,
-      document: reqErm.document,
+      model: pubErm.model,
+      statusCode: pubErm.statusCode,
+      totalCount: pubErm.totalCount,
+      result: pubErm.result,
+      document: pubErm.document,
 
-      accessLevel: req.access,
+      accessLevel: privErm.access,
 
-      query: req._ermQueryOptions,
-      context: req._ermContext,
-      body: req._ermBody,
-      options: req._ermOptions,
-      excludedMap: req._ermExcludedMap
+      query: privErm.queryOptions,
+      context: privErm.context,
+      body: privErm.body,
+      options: privErm.options,
+      excludedMap: privErm.excludedMap
     }, _.isUndefined)
   )
 }

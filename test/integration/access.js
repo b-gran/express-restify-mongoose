@@ -1,17 +1,19 @@
 const assert = require('assert')
 const request = require('request')
 
-module.exports = function (createFn, setup, dismantle) {
-  const erm = require('../../lib/express-restify-mongoose')
-  const db = require('./setup')()
+const erm = require('../../lib/express-restify-mongoose')
+const db = require('./setup')()
 
-  const testPort = 30023
-  const testUrl = `http://localhost:${testPort}`
-  const updateMethods = ['PATCH', 'POST', 'PUT']
+const testPort = 30023
+const testUrl = `http://localhost:${testPort}`
+const updateMethods = ['PATCH', 'POST', 'PUT']
 
-  describe('access', () => {
-    describe('private - include private and protected fields', () => {
+module.exports = {
+
+  accessPrivate: function (createFn, setup, dismantle) {
+    describe('access private - include private and protected fields', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
       let product
       let customer
@@ -26,49 +28,59 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.RepeatCustomer, {
+          erm.serve(router, db.models.RepeatCustomer, {
             private: ['job'],
             protected: ['status'],
             access: () => {
               return 'private'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             private: ['age', 'favorites.animal', 'favorites.purchase.number', 'purchases.number', 'privateDoes.notExist'],
             protected: ['comment', 'favorites.color', 'protectedDoes.notExist'],
             access: (req, done) => {
               done(null, 'private')
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Invoice, {
+          erm.serve(router, db.models.Invoice, {
             private: ['amount'],
             protected: ['receipt'],
             access: () => {
               return 'private'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Product, {
+          erm.serve(router, db.models.Product, {
             private: ['department.code'],
             protected: ['price'],
             access: () => {
               return 'private'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Account, {
+          erm.serve(router, db.models.Account, {
             private: ['accountNumber'],
             protected: ['points'],
             access: () => {
               return 'private'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Product.create({
@@ -413,7 +425,8 @@ module.exports = function (createFn, setup, dismantle) {
 
       updateMethods.forEach((method) => {
         it(`${method} /Customer/:id - saves all fields`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customer._id}`,
             json: {
               name: 'John',
@@ -447,7 +460,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id - saves all fields (falsy values)`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customer._id}`,
             json: {
               age: 0,
@@ -540,9 +554,12 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
+  },
 
-    describe('protected - exclude private fields and include protected fields', () => {
+  accessProtected: function (createFn, setup, dismantle) {
+    describe('access protected - exclude private fields and include protected fields', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
       let product
       let customer
@@ -557,49 +574,59 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.RepeatCustomer, {
+          erm.serve(router, db.models.RepeatCustomer, {
             private: ['job'],
             protected: ['status'],
             access: () => {
               return 'protected'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             private: ['age', 'favorites.animal', 'favorites.purchase.number', 'purchases.number', 'privateDoes.notExist'],
             protected: ['comment', 'favorites.color', 'protectedDoes.notExist'],
             access: (req, done) => {
               done(null, 'protected')
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Invoice, {
+          erm.serve(router, db.models.Invoice, {
             private: ['amount'],
             protected: ['receipt'],
             access: () => {
               return 'protected'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Product, {
+          erm.serve(router, db.models.Product, {
             private: ['department.code'],
             protected: ['price'],
             access: () => {
               return 'protected'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Account, {
+          erm.serve(router, db.models.Account, {
             private: ['accountNumber'],
             protected: ['points'],
             access: () => {
               return 'protected'
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Product.create({
@@ -914,7 +941,8 @@ module.exports = function (createFn, setup, dismantle) {
 
       updateMethods.forEach((method) => {
         it(`${method} /Customer/:id - saves protected and public fields`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customer._id}`,
             json: {
               name: 'John',
@@ -958,7 +986,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id - saves protected and public fields (falsy values)`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customer._id}`,
             json: {
               age: 0,
@@ -1059,9 +1088,12 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
+  },
 
-    describe('public - exclude private and protected fields', () => {
+  accessPublic: function (createFn, setup, dismantle) {
+    describe('access public - exclude private and protected fields', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
       let product
       let customer
@@ -1076,34 +1108,44 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.RepeatCustomer, {
+          erm.serve(router, db.models.RepeatCustomer, {
             private: ['job'],
             protected: ['status'],
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             private: ['age', 'favorites.animal', 'favorites.purchase.number', 'purchases.number', 'privateDoes.notExist'],
             protected: ['comment', 'favorites.color', 'protectedDoes.notExist'],
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Invoice, {
+          erm.serve(router, db.models.Invoice, {
             private: ['amount'],
             protected: ['receipt'],
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Product, {
+          erm.serve(router, db.models.Product, {
             private: ['department.code'],
             protected: ['price'],
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
-          erm.serve(app, db.models.Account, {
+          erm.serve(router, db.models.Account, {
             private: ['accountNumber'],
             protected: ['points'],
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           db.models.Product.create({
@@ -1410,7 +1452,8 @@ module.exports = function (createFn, setup, dismantle) {
 
       updateMethods.forEach((method) => {
         it(`${method} /Customer/:id - saves public fields`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customer._id}`,
             json: {
               name: 'John',
@@ -1454,7 +1497,8 @@ module.exports = function (createFn, setup, dismantle) {
         })
 
         it(`${method} /Customer/:id - saves public fields (falsy values)`, (done) => {
-          request({ method,
+          request({
+            method,
             url: `${testUrl}/api/v1/Customer/${customer._id}`,
             json: {
               age: 0,
@@ -1555,9 +1599,12 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
+  },
 
-    describe('yields an error', () => {
+  accessError: function (createFn, setup, dismantle) {
+    describe('access - yields an error', () => {
       let app = createFn()
+      let router = app.koaRouter || app
       let server
 
       beforeEach((done) => {
@@ -1566,12 +1613,14 @@ module.exports = function (createFn, setup, dismantle) {
             return done(err)
           }
 
-          erm.serve(app, db.models.Customer, {
+          erm.serve(router, db.models.Customer, {
             access: (req, done) => {
               let err = new Error('Something went wrong')
               done(err)
             },
-            restify: app.isRestify
+            restify: app.isRestify,
+            compose: app.compose,
+            koa: app.isKoa
           })
 
           server = app.listen(testPort, done)
@@ -1597,5 +1646,5 @@ module.exports = function (createFn, setup, dismantle) {
         })
       })
     })
-  })
+  }
 }
